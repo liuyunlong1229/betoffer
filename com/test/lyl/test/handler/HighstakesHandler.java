@@ -1,7 +1,9 @@
 package com.test.lyl.test.handler;
 
 import com.sun.net.httpserver.HttpExchange;
+import com.test.lyl.test.exception.ParamException;
 import com.test.lyl.test.store.BetofferManager;
+import com.test.lyl.test.util.ResponseUtil;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -14,9 +16,22 @@ import java.util.regex.Pattern;
 
 public class HighstakesHandler extends RootHandler {
 
+   //Pattern pattern = Pattern.compile("/(\\d+)/highstakes");
+
+
+    String patternStr = "^\\/([^/]+)\\/highstakes$";
+    Pattern pattern = Pattern.compile(patternStr);
+
+
+
+
     @Override
     boolean support(HttpExchange exchange) {
-        Pattern pattern = Pattern.compile("/(\\d+)/highstakes");
+
+        String requestMethod=exchange.getRequestMethod();
+        if(!requestMethod.equalsIgnoreCase("get")){
+            return false;
+        }
         Matcher matcher = pattern.matcher(exchange.getRequestURI().toString());
         return matcher.find();
     }
@@ -24,12 +39,19 @@ public class HighstakesHandler extends RootHandler {
     @Override
     public void handle(HttpExchange exchange) throws IOException {
 
-        Pattern pattern = Pattern.compile("/(\\d+)/highstakes");
         Matcher matcher = pattern.matcher(exchange.getRequestURI().toString());
         matcher.find();
-        int betofferid = Integer.parseInt(matcher.group(1));
+        //由于support方法中已经进行匹配，所以可以之际从matcher.group(1)中取值
 
-        LinkedHashMap<Integer,Integer> resultMap = BetofferManager.getTop20List(betofferid);
+        int betofferId;
+        try {
+            betofferId = Integer.parseInt(matcher.group(1));
+        }catch (Exception ex){
+            throw new ParamException("The betofferId must be a number");
+        }
+
+
+        LinkedHashMap<Integer,Integer> resultMap = BetofferManager.getTop20List(betofferId);
         StringBuilder response=new StringBuilder();
         int index=0;
         if(resultMap !=null){
@@ -47,10 +69,7 @@ public class HighstakesHandler extends RootHandler {
 
         }
         String resp=response.toString();
-        exchange.sendResponseHeaders(200, resp.length());
-        OutputStream os = exchange.getResponseBody();
-        os.write(resp.getBytes(StandardCharsets.UTF_8));
-        os.close();
+        ResponseUtil.writeSuccessResponse(exchange,resp);
 
 
 
