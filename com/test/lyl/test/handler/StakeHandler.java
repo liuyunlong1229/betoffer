@@ -8,9 +8,7 @@ import com.test.lyl.test.util.RequestUtil;
 import com.test.lyl.test.util.ResponseUtil;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
