@@ -1,76 +1,52 @@
 package com.test.lyl.test.store;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 public class BetofferManager {
 
 
-    private static ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
 
-
-    //保留每个投注-个用户-的报价k
-   static Map<Integer, ConcurrentHashMap<Integer,Integer>>  betofferMap=new ConcurrentHashMap<>();
-
-
-    /**
-     * 定时清理每个投注里面的报价，超过20个保留报价高的20个
-     */
-    static {
-        // 启动定时任务，每1分钟检查一次是否有过超过20个投票
-        executorService.scheduleAtFixedRate(() -> {
-
-            Iterator<Map.Entry<Integer, ConcurrentHashMap<Integer, Integer>>> it=betofferMap.entrySet().iterator();
-            while (it.hasNext()){
-                Map.Entry<Integer, ConcurrentHashMap<Integer, Integer>> entry= it.next();
-                if(entry.getValue().size()>20){
-                    reserve(entry.getValue(),entry.getKey());
-                }
-            }
-        }, 0, 1, TimeUnit.MINUTES);
-
-
-    }
+    //保留每个投注-个用户-的报价
+    static Map<Integer, ConcurrentHashMap<Integer,Integer>>  betofferMap=new ConcurrentHashMap<>();
 
     /**
      * 提交报价
      * @param betofferId 投注
      * @param userId 用户id
      * @param stake 报价
-     * @return 1- 新的报价设置成功 0-没有设置成功
+     * @return 1- 新的报价设置成果 0-没有设置成果
      */
-   public  static Integer putStake(Integer betofferId,Integer userId,Integer stake) {
+    public  static Integer putStake(Integer betofferId,Integer userId,Integer stake) {
 
-       ConcurrentHashMap<Integer, Integer> subMap = betofferMap.get(betofferId);
+        ConcurrentHashMap<Integer, Integer> subMap = betofferMap.get(betofferId);
 
-       if (subMap != null) {
-           Integer oldStake = subMap.get(userId);
-           if (oldStake ==null) {
-               subMap.put(userId, stake);
-           }else{
-               if(oldStake<stake){ //替换成最高的报价，同一个用户
-                   subMap.put(userId,stake);
-               }else{
-                   return 0;
-               }
-           }
-           return 1;
-
-
-       } else {
-           subMap = new ConcurrentHashMap<>();
-           betofferMap.put(betofferId, subMap);
-           subMap.put(userId, stake);
-           return 1;
-       }
+        if (subMap != null) {
+            Integer oldStake = subMap.get(userId);
+            if (oldStake ==null) {  //该用户没有报价
+                subMap.put(userId, stake);
+                resizeCapacitylimit(subMap,betofferId);  //有新的报价进来，需要判断是否超过20个，超过进行剔除
+            }else{
+                if(oldStake<stake){ //替换成最高的报价，同一个用户，此次不需要重新排序，在查询的时候会排
+                    subMap.put(userId,stake);
+                }else{
+                    return 0;
+                }
+            }
+            return 1;
 
 
+        } else {
+            subMap = new ConcurrentHashMap<>();
+            betofferMap.put(betofferId, subMap);
+            subMap.put(userId, stake);
+            return 1;
+        }
 
-   }
+
+
+    }
 
 
     /**
@@ -78,32 +54,35 @@ public class BetofferManager {
      * @param subMap  用户和报价映射
      * @param betofferId 投注id
      */
-   public static void reserve(ConcurrentHashMap<Integer, Integer> subMap,Integer betofferId ) {
+    public static void resizeCapacitylimit(ConcurrentHashMap<Integer, Integer> subMap,Integer betofferId ) {
 
 
-       //针对某个投注报价多余20个
-       if (subMap.size() > 20) {
+        //针对某个投注报价多余20个
+        if (subMap.size() > 20) {
 
-           List<Map.Entry<Integer, Integer>> entryList = new ArrayList<>(subMap.entrySet());
+            List<Map.Entry<Integer, Integer>> entryList = new ArrayList<>(subMap.entrySet());
 
-           // 使用Stream API进行排序，按照value降序排列
-           entryList.sort(Map.Entry.comparingByValue(Comparator.reverseOrder()));
+            // 使用Stream API进行排序，按照value降序排列
+            entryList.sort(Map.Entry.comparingByValue(Comparator.reverseOrder()));
 
-           List<Map.Entry<Integer, Integer>> top20List = entryList.subList(0, 20);
+            // 保留value最大的20个元素，如果总数不足20个，则取全部元素
+            int size = Math.min(20, entryList.size());
+            List<Map.Entry<Integer, Integer>> top20List = entryList.subList(0, size);
 
-           subMap = null;
+            subMap = null;
 
-           ConcurrentHashMap newMap= top20List.stream().collect(Collectors.toMap(
-                   Map.Entry::getKey,
-                   Map.Entry::getValue,
-                   (oldValue, newValue) -> oldValue,
-                   ConcurrentHashMap::new
-           ));
+            ConcurrentHashMap newMap= top20List.stream().collect(Collectors.toMap(
+                    Map.Entry::getKey,
+                    Map.Entry::getValue,
+                    (oldValue, newValue) -> oldValue,
+                    ConcurrentHashMap::new
+            ));
 
-           betofferMap.put(betofferId, newMap);
+            betofferMap.put(betofferId, newMap);
 
-       }
-   }
+
+        }
+    }
 
 
     /**
@@ -126,9 +105,11 @@ public class BetofferManager {
                    LinkedHashMap::new
            ));
 
-       }
+        }
 
-       return null;
+        return null;
+    }
+
+
    }
 
-}
