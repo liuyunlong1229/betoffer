@@ -1,5 +1,8 @@
 package com.test.lyl.test.store;
 
+import com.test.lyl.test.constant.ConstantVar;
+import com.test.lyl.test.vo.Token;
+
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Random;
@@ -12,33 +15,27 @@ import java.util.stream.IntStream;
 public class SessionManager {
 
 
-    private static ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
+    private static final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
+
+    // 用于存储 sessionkey 和 Token 的映射关系，方便反向查找
+    static Map<String, Token> sesionMap = new ConcurrentHashMap<>();
 
 
-    //用于存储 userid 和 sessionkey 的映射关系
-    static Map<String, Integer> sesionMap = new ConcurrentHashMap<>();
-
-    // 用于存储 sessionkey 和 userid 的映射关系，方便反向查找
-    static Map<Integer, String> userMap = new ConcurrentHashMap<>();
-
-    // 用于存储 sessionkey 和 时间戳 的映射关系，方便反向查找
-    static Map<String, Long> timestampMap = new ConcurrentHashMap<>();
+    //用于存储 userId 和 Token 的映射关系
+    static Map<Integer, Token> userMap = new ConcurrentHashMap<>();
 
     static {
         // 启动定时任务，每1分钟检查一次是否有过期的 sessionkey
         executorService.scheduleAtFixedRate(() -> {
             long currentTime = System.currentTimeMillis();
-           Iterator<Map.Entry<String,Integer>> it=sesionMap.entrySet().iterator();
+           Iterator<Map.Entry<String,Token>> it=sesionMap.entrySet().iterator();
            while (it.hasNext()){
-               Map.Entry<String,Integer> entry= it.next();
-               String sessionKey = entry.getKey();
-               Integer userid= entry.getValue();
-
-               long timestamp = Long.parseLong(sessionKey);
-               if(currentTime - timestamp > 10 * 60 * 1000){ //10分钟session过期
+               Map.Entry<String,Token> entry= it.next();
+               Token token= entry.getValue();
+               Integer userId=token.getUserId();
+               if(token.isExpired()){ //10分钟session过期
                    it.remove();
-                   userMap.remove(userid);
-                   timestampMap.remove(sessionKey);
+                   userMap.remove(userId);
                }
            }
         }, 0, 1, TimeUnit.MINUTES);
@@ -48,27 +45,28 @@ public class SessionManager {
 
 
     /**
-     * 根据用户id，生成sessionkey，简单实现，暂时用时间戳代替，可以保证不重复
-     * @param userid
-     * @return
+     * 根据用户id获取sessionKey简单实现
+     * @param userId 用户id
+     * @return sessionKey
      */
-    public static String buildSessionKey(Integer userid) {
-        String sessionKey=userMap.get(userid);
-        if(sessionKey !=null){
-            long timestamp =timestampMap.get(sessionKey);
+    public static String buildSessionKey(Integer userId) {
+
+        Token token= userMap.get(userId);
+        if(token !=null){
+            Long timestamp=token.getPubTime();
             long currentTime = System.currentTimeMillis();
 
-            if(currentTime - timestamp < 10 * 60 * 1000){
-               return sessionKey;
+            if(currentTime - timestamp < ConstantVar.TOKEN_EXPIRED_TIME){
+                return token.getSessionKey();
             }
 
         }
-        long timestamp = System.currentTimeMillis();
-        sessionKey = buildSessionKey();
 
-        userMap.put(userid, sessionKey);
-        sesionMap.put(sessionKey, userid);
-        timestampMap.put(sessionKey,timestamp);
+        long timestamp = System.currentTimeMillis();
+        String sessionKey = buildSessionKey();
+        token=new Token(userId,sessionKey,timestamp);
+        userMap.put(userId, token);
+        sesionMap.put(sessionKey, token);
 
         return sessionKey;
     }
@@ -81,16 +79,19 @@ public class SessionManager {
      */
     public static Integer getUserIdBySessionKey(String sessionKey) {
         long currentTime = System.currentTimeMillis();
-        Long timestamp= timestampMap.get(sessionKey);
+        Token token = sesionMap.get(sessionKey);
 
-        if(currentTime - timestamp > 10 * 60 * 1000){
-            Integer userId=sesionMap.remove(sessionKey);
-            userMap.remove(userId);
-            timestampMap.remove(sessionKey);
+        if (token != null) {
+            Integer userId = token.getUserId();
+            if (token.isExpired()) {
+                sesionMap.remove(sessionKey);
+                userMap.remove(userId);
+            }
+
         }
-
-        return sesionMap.get(sessionKey);
+        return null;
     }
+
 
 
     /**
@@ -99,16 +100,14 @@ public class SessionManager {
      */
     public static String buildSessionKey() {
         Random random = new Random();
-        String sessionKey= IntStream.range(0, 7)
-                .mapToObj(i -> {
-                    int choice = random.nextInt(36);
-                    if (choice < 26) {
-                        return String.valueOf((char) (random.nextInt(26) + 65));
-                    } else {
-                        return String.valueOf((char) (random.nextInt(10) + 48));
-                    }
-                })
-                .reduce("", String::concat);
+        StringBuilder result = new StringBuilder();
+        int length=ConstantVar.RANDOM_STRING_FACTORY.length();
+        for (int i = 0; i < 7; i++) {
+            int index = random.nextInt(length);
+            result.append(ConstantVar.RANDOM_STRING_FACTORY.charAt(index));
+        }
+
+        String sessionKey=result.toString();
         if(sesionMap.containsKey(sessionKey)){
             return buildSessionKey();
         }
